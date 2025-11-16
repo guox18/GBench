@@ -1,0 +1,47 @@
+# GBench 测试配置 - 4 张卡
+
+# 基础配置
+base_output_dir: "/mnt/shared-storage-user/songdemin/user/guoxu/workspace/gbench_v2/output"
+output_dir: null
+
+# 数据处理
+data:
+  input_file: "/mnt/shared-storage-user/songdemin/user/guoxu/workspace/gbench_v2/examples/data/questions.jsonl"
+  parser: null
+
+# 模型推理
+inference:
+  total_gpus: 4  # 4 张卡
+  response_processor: "/mnt/shared-storage-user/songdemin/user/guoxu/workspace/gbench_v2/examples/utils/cut_thinking.py"
+  models:
+    # Qwen3-8B 模型
+    - name: "qwen3-8b-origin"
+      model_path: "/mnt/shared-storage-user/large-model-center-share-weights/hf_hub/models--Qwen--Qwen3-8B/snapshots/2069b3fae1114555f3c020c81410e51fa0f656f2"
+      type: "vllm"
+      python_path: "/mnt/shared-storage-user/songdemin/user/guoxu/miniconda3/envs/mix/bin/python"  # 直接使用 Python 路径
+      tensor_parallel_size: 1  # 使用 1 张卡，4 个进程并行
+      num_samples: 2  # 每个问题采样 2 次
+      extra_args:
+        temperature: 0.7
+        max_tokens: 2048
+        top_p: 0.95
+
+# 结果评测
+judge:
+  type: "llm"
+  max_workers: 10
+  response_processor: "/mnt/shared-storage-user/songdemin/user/guoxu/workspace/gbench_v2/examples/utils/cut_thinking.py"
+  extra_args:
+    # 使用本地 API
+    api_base: "http://100.100.157.69:8004/v1"
+    api_key: "EMPTY"
+    judge_model: "local-model"
+    temperature: 0.0
+    max_tokens: 10
+
+# 流程控制
+run_data_processing: true
+run_inference: true
+run_judge: true
+run_summary: true
+

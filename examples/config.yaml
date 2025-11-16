@@ -1,0 +1,108 @@
+# GBench 配置文件示例
+
+# ============================================================================
+# 基础配置
+# ============================================================================
+base_output_dir: "output"
+
+# output_dir: 指定输出目录（用于断点续传）
+# 留空则自动创建带时间戳的目录: output/YYYYMMDD_HHMMSS/
+output_dir: null
+
+# ============================================================================
+# 数据处理
+# ============================================================================
+data:
+  # 输入数据文件路径
+  input_file: "data/questions.jsonl"
+  
+  # 自定义解析器（可选）
+  # 可以是 Python 文件路径，需包含 parse() 函数
+  # 如果为 null，使用默认解析器（假设数据已是标准格式）
+  parser: null
+
+# ============================================================================
+# 模型推理
+# ============================================================================
+inference:
+  # 可用 GPU 总数
+  total_gpus: 8
+  
+  # 响应后处理函数（可选）
+  # 用于处理模型输出，如移除思考过程
+  response_processor: "utils/cut_thinking.py"
+  
+  # 模型列表
+  models:
+    # 模型 1
+    - name: "qwen-7b"
+      model_path: "/path/to/qwen-7b"
+      type: "vllm"
+      conda_env: "vllm"
+      tensor_parallel_size: 1
+      num_samples: 1  # 每个 prompt 采样次数
+      extra_args:
+        temperature: 0.7
+        max_tokens: 2048
+        top_p: 0.95
+    
+    # 模型 2
+    - name: "qwen-72b"
+      model_path: "/path/to/qwen-72b"
+      type: "vllm"
+      conda_env: "vllm"
+      tensor_parallel_size: 4
+      num_samples: 2  # 采样 2 次，用于计算 pass@2 等指标
+      extra_args:
+        temperature: 0.7
+        max_tokens: 2048
+        top_p: 0.95
+
+# ============================================================================
+# 结果评测
+# ============================================================================
+judge:
+  # 评测类型
+  type: "llm"
+  
+  # 并发线程数
+  max_workers: 10
+  
+  # 响应后处理函数（可选）
+  # 在评测前对模型响应进行处理
+  response_processor: "utils/cut_thinking.py"
+  
+  # 额外参数
+  extra_args:
+    # API 配置
+    api_base: "https://api.openai.com/v1"
+    api_key: "your-api-key-here"
+    
+    # 评测模型
+    judge_model: "gpt-4"
+    
+    # 采样参数
+    temperature: 0.0
+    max_tokens: 10
+    
+    # 自定义评测模板（可选）
+    # 留空使用默认模板
+    template_file: null
+
+# ============================================================================
+# 流程控制
+# ============================================================================
+# 用于控制运行哪些步骤，方便断点续传
+
+# 是否运行数据处理
+run_data_processing: true
+
+# 是否运行模型推理
+run_inference: true
+
+# 是否运行结果评测
+run_judge: true
+
+# 是否运行指标汇总
+run_summary: true
+
