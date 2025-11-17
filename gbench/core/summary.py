@@ -4,6 +4,8 @@ import csv
 from pathlib import Path
 from typing import Any, Dict, List
 
+from tqdm import tqdm
+
 from gbench.utils import ensure_dir, get_logger, load_jsonl
 
 
@@ -38,16 +40,16 @@ class SummaryGenerator:
 
         # 收集所有模型的评测结果
         all_results = {}
-        for model_name in model_names:
+        for model_name in tqdm(model_names, desc="加载模型评测结果", unit="模型"):
             judge_file = eval_dir / model_name / "judge_result.jsonl"
 
             if not judge_file.exists():
-                self.logger.warning(f"未找到评测结果: {judge_file}")
+                tqdm.write(f"警告: 未找到评测结果: {judge_file}")
                 continue
 
             data = load_jsonl(judge_file)
             all_results[model_name] = data
-            self.logger.info(f"加载模型 {model_name} 的评测结果: {len(data)} 条")
+            tqdm.write(f"✓ 已加载模型 {model_name}: {len(data)} 条数据")
 
         if not all_results:
             self.logger.error("没有找到任何评测结果")
@@ -69,6 +71,17 @@ class SummaryGenerator:
         self.logger.info(f"CSV 报告保存到: {csv_file}")
 
         return md_file, csv_file
+
+    def _extract_score(self, judge_item: Any) -> float:
+        """
+        从 judge 结果中提取分数
+        支持两种格式:
+        1. 整数: 0 或 1
+        2. 字典: {"score": 1, "details": {...}}
+        """
+        if isinstance(judge_item, dict):
+            return float(judge_item.get("score", 0))
+        return float(judge_item)
 
     def _calculate_metrics(self, data: List[Dict[str, Any]]) -> Dict[str, float]:
         """
@@ -95,24 +108,29 @@ class SummaryGenerator:
 
         # 计算各种指标
         for k in range(1, max_samples + 1):
+            # 提取分数（支持字典格式）
+            scores_list = [
+                [self._extract_score(j) for j in item["judges"][:k]] for item in valid_data
+            ]
+
             # pass@k: 前 k 次中至少一次正确
-            pass_at_k = sum(1 for item in valid_data if any(item["judges"][:k])) / len(valid_data)
+            pass_at_k = sum(1 for scores in scores_list if any(scores)) / len(valid_data)
             metrics[f"pass@{k}"] = pass_at_k
 
             # all@k: 前 k 次全部正确
-            all_at_k = sum(1 for item in valid_data if all(item["judges"][:k])) / len(valid_data)
+            all_at_k = sum(1 for scores in scores_list if all(scores)) / len(valid_data)
             metrics[f"all@{k}"] = all_at_k
 
             # mean@k: 前 k 次的平均分
-            mean_at_k = sum(sum(item["judges"][:k]) / k for item in valid_data) / len(valid_data)
+            mean_at_k = sum(sum(scores) / k for scores in scores_list) / len(valid_data)
             metrics[f"mean@{k}"] = mean_at_k
 
             # max@k: 前 k 次最高分的平均
-            max_at_k = sum(max(item["judges"][:k]) for item in valid_data) / len(valid_data)
+            max_at_k = sum(max(scores) for scores in scores_list) / len(valid_data)
             metrics[f"max@{k}"] = max_at_k
 
             # min@k: 前 k 次最低分的平均
-            min_at_k = sum(min(item["judges"][:k]) for item in valid_data) / len(valid_data)
+            min_at_k = sum(min(scores) for scores in scores_list) / len(valid_data)
             metrics[f"min@{k}"] = min_at_k
 
         return metrics

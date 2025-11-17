@@ -1,18 +1,18 @@
 # GBench 测试配置 - 4 张卡
 
 # 基础配置
-base_output_dir: "/mnt/shared-storage-user/songdemin/user/guoxu/workspace/gbench_v2/output"
+base_output_dir: "/mnt/shared-storage-user/songdemin/user/guoxu/workspace/gbench/output"
 output_dir: null
 
 # 数据处理
 data:
-  input_file: "/mnt/shared-storage-user/songdemin/user/guoxu/workspace/gbench_v2/examples/data/questions.jsonl"
+  input_file: "/mnt/shared-storage-user/songdemin/user/guoxu/workspace/gbench/examples/data/questions.jsonl"
   parser: null
 
 # 模型推理
 inference:
   total_gpus: 4  # 4 张卡
-  response_processor: "/mnt/shared-storage-user/songdemin/user/guoxu/workspace/gbench_v2/examples/utils/cut_thinking.py"
+  response_processor: "/mnt/shared-storage-user/songdemin/user/guoxu/workspace/gbench/examples/utils/cut_thinking.py"
   models:
     # Qwen3-8B 模型
     - name: "qwen3-8b-origin"
@@ -30,7 +30,7 @@ inference:
 judge:
   type: "llm"
   max_workers: 10
-  response_processor: "/mnt/shared-storage-user/songdemin/user/guoxu/workspace/gbench_v2/examples/utils/cut_thinking.py"
+  response_processor: "/mnt/shared-storage-user/songdemin/user/guoxu/workspace/gbench/examples/utils/cut_thinking.py"
   extra_args:
     # 使用本地 API
     api_base: "http://100.100.157.69:8004/v1"

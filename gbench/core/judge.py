@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List
 
 from jinja2 import Template
+from tqdm import tqdm
 
 from gbench.utils import get_logger, load_jsonl, save_jsonl
 
@@ -92,8 +93,7 @@ class LLMJudge:
                 futures[future] = item["id"]
 
             # 收集结果
-            completed = 0
-            for future in as_completed(futures):
+            for future in tqdm(as_completed(futures), total=len(futures), desc="评测进度"):
                 item_id = futures[future]
                 try:
                     judges, verbose_log = future.result()
@@ -112,10 +112,6 @@ class LLMJudge:
                                 "log": verbose_log,
                             }
                         )
-
-                    completed += 1
-                    if completed % 10 == 0:
-                        self.logger.info(f"评测进度: {completed}/{len(data)}")
 
                 except Exception as e:
                     self.logger.error(f"评测失败 (ID: {item_id}): {e}")

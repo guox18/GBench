@@ -290,28 +290,48 @@ class VLLMInference:
         # 并发启动所有进程
         self.logger.info(f"并发启动 {len(processes)} 个推理进程...")
         for proc_info in processes:
+            # 为每个进程创建日志文件
+            log_file = temp_dir / f"log_rank_{proc_info['rank']}.txt"
             self.logger.info(f"启动进程 {proc_info['rank']}: {proc_info['cmd']}")
+            self.logger.info(f"  日志文件: {log_file}")
+
+            # 打开日志文件
+            log_f = open(log_file, "w", buffering=1)
+
             proc = subprocess.Popen(
                 proc_info["cmd"],
                 shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=log_f,
+                stderr=subprocess.STDOUT,
                 text=True,
             )
             proc_info["process"] = proc
-            time.sleep(1)  # 稍微延迟，避免同时初始化模型
+            proc_info["log_file"] = log_f
+            proc_info["log_path"] = log_file
+            time.sleep(5)  # 增加延迟到5秒，避免同时初始化模型导致资源竞争
 
         # 等待所有进程完成
         self.logger.info("等待所有进程完成...")
         results = []
         for proc_info in processes:
             proc = proc_info["process"]
-            stdout, stderr = proc.communicate()
+            proc.wait()
+
+            # 关闭日志文件
+            proc_info["log_file"].close()
 
             if proc.returncode != 0:
                 self.logger.error(f"进程 {proc_info['rank']} 失败，返回码: {proc.returncode}")
-                if stderr:
-                    self.logger.error(f"STDERR: {stderr}")
+                # 读取并打印日志文件的最后50行
+                log_path = proc_info["log_path"]
+                if log_path.exists():
+                    self.logger.error(f"日志文件: {log_path}")
+                    with open(log_path, "r") as f:
+                        lines = f.readlines()
+                        last_lines = lines[-50:] if len(lines) > 50 else lines
+                        self.logger.error("最后50行日志:")
+                        for line in last_lines:
+                            self.logger.error(f"  {line.rstrip()}")
                 raise RuntimeError(f"进程 {proc_info['rank']} 执行失败")
 
             self.logger.info(f"进程 {proc_info['rank']} 完成")
@@ -347,29 +367,60 @@ class VLLMInference:
         """生成 vLLM 推理脚本"""
         return f'''
 import json
+import os
+import sys
 from pathlib import Path
+from datetime import datetime
 from vllm import LLM, SamplingParams
 from transformers import AutoTokenizer
 
+def log(msg):
+    """打印带时间戳的日志"""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{{timestamp}}] {{msg}}", flush=True)
+
+log("="*80)
+log("开始推理任务")
+log(f"数据文件: {data_file}")
+log(f"输出文件: {output_file}")
+log(f"模型路径: {model_path}")
+log(f"Tensor Parallel Size: {tensor_parallel_size}")
+log(f"采样次数: {num_samples}")
+log(f"CUDA_VISIBLE_DEVICES: {{os.environ.get('CUDA_VISIBLE_DEVICES', 'Not set')}}")
+log("="*80)
+
 # 加载数据
+log("正在加载数据...")
 data = []
 with open("{data_file}", "r", encoding="utf-8") as f:
     for line in f:
         data.append(json.loads(line.strip()))
+log(f"已加载 {{len(data)}} 条数据")
 
 # 初始化 vLLM
-llm = LLM(
-    model="{model_path}",
-    tensor_parallel_size={tensor_parallel_size},
-    trust_remote_code=True,
-)
+log("正在初始化 vLLM 引擎...")
+try:
+    llm = LLM(
+        model="{model_path}",
+        tensor_parallel_size={tensor_parallel_size},
+        trust_remote_code=True,
+    )
+    log("✓ vLLM 引擎初始化成功")
+except Exception as e:
+    log(f"✗ vLLM 引擎初始化失败: {{e}}")
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
 
 # 加载 tokenizer 以应用 chat template
+log("正在加载 tokenizer...")
 tokenizer = AutoTokenizer.from_pretrained("{model_path}", trust_remote_code=True)
+log("✓ tokenizer 加载成功")
 
 # 应用 chat template 并提取 prompts
+log("正在应用 chat template...")
 prompts = []
-for item in data:
+for i, item in enumerate(data):
     # 将用户输入转换为对话格式
     messages = [
         {{"role": "user", "content": item["prompt"]}}
@@ -384,8 +435,10 @@ for item in data:
         prompts.append(formatted_prompt)
     except Exception as e:
         # 如果模型不支持 chat template，直接使用原始 prompt
-        print(f"警告: 无法应用 chat template ({{e}})，使用原始 prompt")
+        log(f"警告: 样本 {{i}} 无法应用 chat template ({{e}})，使用原始 prompt")
         prompts.append(item["prompt"])
+
+log(f"✓ 已处理 {{len(prompts)}} 个 prompt")
 
 # 设置采样参数
 sampling_params = SamplingParams(
@@ -394,23 +447,38 @@ sampling_params = SamplingParams(
     max_tokens={max_tokens},
     n={num_samples},
 )
+log(f"采样参数: temperature={temperature}, top_p={top_p}, max_tokens={max_tokens}, n={num_samples}")
 
 # 执行推理
-print(f"开始推理 {{len(prompts)}} 个样本...")
-outputs = llm.generate(prompts, sampling_params)
+log(f"开始推理 {{len(prompts)}} 个样本...")
+try:
+    outputs = llm.generate(prompts, sampling_params)
+    log(f"✓ 推理完成，共生成 {{len(outputs)}} 组结果")
+except Exception as e:
+    log(f"✗ 推理失败: {{e}}")
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
 
 # 处理结果
+log("正在处理结果...")
 for i, output in enumerate(outputs):
     responses = [o.text for o in output.outputs]
     data[i]["responses"] = responses
+    if (i + 1) % 10 == 0:
+        log(f"  已处理 {{i+1}}/{{len(outputs)}} 个结果")
+
+log(f"✓ 所有结果处理完成")
 
 # 保存结果
+log(f"正在保存结果到: {output_file}")
 Path("{output_file}").parent.mkdir(parents=True, exist_ok=True)
 with open("{output_file}", "w", encoding="utf-8") as f:
     for item in data:
         f.write(json.dumps(item, ensure_ascii=False) + "\\n")
 
-print(f"推理完成，结果保存到: {output_file}")
+log(f"✓ 推理完成，结果已保存到: {output_file}")
+log("="*80)
 '''
 
     def _apply_response_processor(self, output_file: Path, processor: Callable[[str], str]) -> None:
